@@ -25,7 +25,7 @@ The ESP32 starts a Wi-Fi access point:
 - Password: `WaterPlant2026`
 - Address: `http://192.168.4.1`
 
-Automatic mode waters for up to 8 s when moisture drops below 35%, then waits 60 s before watering again.
+Automatic mode waters for 1-5 s (default 5 s, adjustable in the app) when moisture drops below 35%, then waits 60 s before watering again.
 
 ### JSON API
 
@@ -35,6 +35,7 @@ Automatic mode waters for up to 8 s when moisture drops below 35%, then waits 60
 | POST | `/api/pump/on` | Start the pump |
 | POST | `/api/pump/off` | Stop the pump |
 | POST | `/api/auto?enabled=1` or `0` | Turn automatic watering on or off |
+| POST | `/api/settings?threshold=35&duration=5000` | Set the moisture threshold (5-95%) and watering duration (1000-5000 ms); both optional |
 
 ## Flutter app
 

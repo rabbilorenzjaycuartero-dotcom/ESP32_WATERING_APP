@@ -9,12 +9,14 @@ const uint8_t RELAY_OFF = HIGH;
 
 const int DRY_READING = 3000;
 const int WET_READING = 1300;
-const uint8_t WATER_BELOW_PERCENT = 35;
 const unsigned long SAMPLE_INTERVAL_MS = 2000UL;
-const unsigned long MAX_WATER_TIME_MS = 8000UL;
+const unsigned long MIN_WATER_TIME_MS = 1000UL;
+const unsigned long MAX_WATER_TIME_LIMIT_MS = 5000UL;
 const unsigned long WATER_COOLDOWN_MS = 60000UL;
 
 WebServer server(80);
+uint8_t waterBelowPercent = 35;
+unsigned long maxWaterTimeMs = 5000UL;
 bool automaticMode = true;
 bool pumpRunning = false;
 int moisturePercent = 0;
@@ -65,7 +67,7 @@ void sendStatusJson() {
   unsigned long pumpRemainingMs = 0;
   if (pumpRunning) {
     const unsigned long elapsed = now - pumpStartedAt;
-    pumpRemainingMs = elapsed < MAX_WATER_TIME_MS ? MAX_WATER_TIME_MS - elapsed : 0;
+    pumpRemainingMs = elapsed < maxWaterTimeMs ? maxWaterTimeMs - elapsed : 0;
   }
   unsigned long cooldownRemainingMs = 0;
   if (!pumpRunning && lastWaterFinishedAt != 0) {
@@ -82,7 +84,11 @@ void sendStatusJson() {
   json += F(",\"auto\":");
   json += automaticMode ? F("true") : F("false");
   json += F(",\"threshold\":");
-  json += WATER_BELOW_PERCENT;
+  json += waterBelowPercent;
+  json += F(",\"maxWaterMs\":");
+  json += maxWaterTimeMs;
+  json += F(",\"cooldownMs\":");
+  json += WATER_COOLDOWN_MS;
   json += F(",\"pumpRemainingMs\":");
   json += pumpRemainingMs;
   json += F(",\"cooldownRemainingMs\":");
@@ -117,6 +123,12 @@ void setup() {
     sendStatusJson();
   });
 
+  server.on("/api/settings", HTTP_POST, [](){
+    if (server.hasArg("threshold")) waterBelowPercent = constrain(server.arg("threshold").toInt(), 5, 95);
+    if (server.hasArg("duration")) maxWaterTimeMs = constrain((unsigned long)server.arg("duration").toInt(), MIN_WATER_TIME_MS, MAX_WATER_TIME_LIMIT_MS);
+    sendStatusJson();
+  });
+
   server.begin();
   Serial.println("Connect phone to Plant-Watering and open http://192.168.4.1");
 }
@@ -124,10 +136,10 @@ void setup() {
 void loop() {
   server.handleClient();
   const unsigned long now = millis();
-  if (pumpRunning && now - pumpStartedAt >= MAX_WATER_TIME_MS) stopPump();
+  if (pumpRunning && now - pumpStartedAt >= maxWaterTimeMs) stopPump();
   if (now - lastSampleAt >= SAMPLE_INTERVAL_MS) {
     lastSampleAt = now;
     moisturePercent = readMoisturePercent();
-    if (automaticMode && !pumpRunning && now - lastWaterFinishedAt >= WATER_COOLDOWN_MS && moisturePercent < WATER_BELOW_PERCENT) startPump();
+    if (automaticMode && !pumpRunning && now - lastWaterFinishedAt >= WATER_COOLDOWN_MS && moisturePercent < waterBelowPercent) startPump();
   }
 }

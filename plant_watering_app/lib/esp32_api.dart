@@ -9,6 +9,8 @@ class PlantStatus {
   final bool pump;
   final bool auto;
   final int threshold;
+  final int maxWaterMs;
+  final int cooldownMs;
   final int pumpRemainingMs;
   final int cooldownRemainingMs;
 
@@ -18,19 +20,23 @@ class PlantStatus {
     required this.pump,
     required this.auto,
     required this.threshold,
+    this.maxWaterMs = 5000,
+    this.cooldownMs = 60000,
     required this.pumpRemainingMs,
     required this.cooldownRemainingMs,
   });
 
   factory PlantStatus.fromJson(Map<String, dynamic> json) => PlantStatus(
-        moisture: (json['moisture'] as num).toInt(),
-        raw: (json['raw'] as num).toInt(),
-        pump: json['pump'] as bool,
-        auto: json['auto'] as bool,
-        threshold: (json['threshold'] as num?)?.toInt() ?? 35,
-        pumpRemainingMs: (json['pumpRemainingMs'] as num?)?.toInt() ?? 0,
-        cooldownRemainingMs: (json['cooldownRemainingMs'] as num?)?.toInt() ?? 0,
-      );
+    moisture: (json['moisture'] as num).toInt(),
+    raw: (json['raw'] as num).toInt(),
+    pump: json['pump'] as bool,
+    auto: json['auto'] as bool,
+    threshold: (json['threshold'] as num?)?.toInt() ?? 35,
+    maxWaterMs: (json['maxWaterMs'] as num?)?.toInt() ?? 5000,
+    cooldownMs: (json['cooldownMs'] as num?)?.toInt() ?? 60000,
+    pumpRemainingMs: (json['pumpRemainingMs'] as num?)?.toInt() ?? 0,
+    cooldownRemainingMs: (json['cooldownRemainingMs'] as num?)?.toInt() ?? 0,
+  );
 }
 
 class Esp32Api {
@@ -47,6 +53,13 @@ class Esp32Api {
   Future<PlantStatus> pumpOff() => _request('POST', '/api/pump/off');
   Future<PlantStatus> setAuto(bool enabled) =>
       _request('POST', '/api/auto?enabled=${enabled ? 1 : 0}');
+  Future<PlantStatus> setSettings({int? threshold, int? durationMs}) {
+    final query = [
+      if (threshold != null) 'threshold=$threshold',
+      if (durationMs != null) 'duration=$durationMs',
+    ].join('&');
+    return _request('POST', '/api/settings?$query');
+  }
 
   Future<PlantStatus> _request(String method, String path) async {
     if (demo) return _sim.handle(path);
@@ -66,8 +79,8 @@ class Esp32Api {
 
 /// Mimics the ESP32 firmware so the app can be tried without the hardware.
 class _SimulatedEsp32 {
-  static const _threshold = 35;
-  static const _maxWater = Duration(seconds: 8);
+  int _threshold = 35;
+  Duration _maxWater = const Duration(seconds: 5);
   static const _cooldown = Duration(seconds: 60);
 
   double _moisture = 45;
@@ -82,6 +95,13 @@ class _SimulatedEsp32 {
     if (path == '/api/pump/on') _startPump();
     if (path == '/api/pump/off') _stopPump();
     if (path.startsWith('/api/auto')) _auto = path.endsWith('enabled=1');
+    if (path.startsWith('/api/settings')) {
+      final q = Uri.parse(path).queryParameters;
+      final t = int.tryParse(q['threshold'] ?? '');
+      final d = int.tryParse(q['duration'] ?? '');
+      if (t != null) _threshold = t.clamp(5, 95);
+      if (d != null) _maxWater = Duration(milliseconds: d.clamp(1000, 5000));
+    }
     return _snapshot();
   }
 
@@ -92,7 +112,8 @@ class _SimulatedEsp32 {
     _moisture += _pump ? seconds * 4 : -seconds * 0.5;
     _moisture = _moisture.clamp(0, 100);
     if (_pump && now.difference(_pumpStartedAt) >= _maxWater) _stopPump();
-    final cooledDown = _lastWaterFinishedAt == null ||
+    final cooledDown =
+        _lastWaterFinishedAt == null ||
         now.difference(_lastWaterFinishedAt!) >= _cooldown;
     if (_auto && !_pump && cooledDown && _moisture < _threshold) _startPump();
   }
@@ -121,6 +142,8 @@ class _SimulatedEsp32 {
       pump: _pump,
       auto: _auto,
       threshold: _threshold,
+      maxWaterMs: _maxWater.inMilliseconds,
+      cooldownMs: _cooldown.inMilliseconds,
       pumpRemainingMs: math.max(0, pumpLeft?.inMilliseconds ?? 0),
       cooldownRemainingMs: math.max(0, coolLeft?.inMilliseconds ?? 0),
     );
